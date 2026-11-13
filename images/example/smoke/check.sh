@@ -5,4 +5,4 @@ ready
 databasify ctl is-active --quiet server.service
 [ "$(databasify ctl show -p NRestarts --value server)" = 0 ]
 databasify ctl logs -u server -n 3
-echo "example $DATABASIFY_RELEASE answered through the engine binary"
+echo "example $DATABASIFY_RELEASE runs under the databasify supervisor"
