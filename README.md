@@ -2,52 +2,34 @@
 
 - [Introduction](#introduction)
 - [Creating Your Engine](#creating-your-engine)
-- [Writing the Engine](#writing-the-engine)
 - [Choosing the Image](#choosing-the-image)
 - [Testing](#testing)
 - [Publishing](#publishing)
-- [Registering the Engine](#registering-the-engine)
+- [Writing the Driver](#writing-the-driver)
 
 ## Introduction
 
-A template for a new [Databasify](https://github.com/databasifylabs/databasify) database engine, built on the [engine SDK](https://github.com/databasifylabs/engine-sdk). It passes the SDK's conformance suite as it is. It runs the official `valkey` image as a stand-in database, answers `node status`, and says `unsupported` to everything else.
+A template for the images of a new [Databasify](https://github.com/databasifylabs/databasify) database engine. Each image is the official image of your database, its tools, and `databasify`, the [engine SDK](https://github.com/databasifylabs/engine-sdk) 1.0 runtime that runs as PID 1. As it is, it runs the official `valkey` image as a stand-in database and passes the SDK's smoke test and runtime conformance suite.
 
-An engine needs two repositories: this one, which builds and publishes the images, and a plugin made from [plugin-example-database](https://github.com/databasifylabs/plugin-example-database), which registers the engine in Databasify. Databasify shows a plugin's engine as a community engine, built and supported by you.
+There is no engine code here. Engine behaviour is a PHP driver with Blade scripts in Databasify, which runs those scripts inside the container through the runtime. This repository changes only when your database or one of its tools moves to a new version.
 
 ## Creating Your Engine
 
 Create a repository from this template, then rename `example` to your engine id everywhere it appears:
-- `Name()` in `engine/engine.go`;
 - `images/example/`;
 - the keys and `engine` fields in `versions.json`;
-- `DATABASIFY_ENGINE` and the labels in the Dockerfile;
+- `DATABASIFY_ENGINE` and the `io.databasify.engine` label in the Dockerfile;
 - `engine: example` in both workflows.
-
-Also set the module path in `go.mod`:
-
-```bash
-go mod edit -module github.com/<owner>/engine-<id>
-```
-
-## Writing the Engine
-
-`engine/` implements the SDK's `contract.Engine`.
-- `Nodes` and `Cluster` are required. Their stubs implement `contract.Partial`: add each command to `Implements()` as you implement it, and delete `Implements()` once the whole group works.
-- Every optional group (`Accounts`, `Archive`, `Migration`, `Pools`, `Config`) returns its `Unsupported` stand-in until you replace it.
-- Fill in `Capabilities()` (ports, reserved names, password encryptions) and `HostProfile()` (host tuning).
-
-```go
-func (Nodes) Implements() []string {
-	return []string{"node status", "node configure", "node start"}
-}
-```
 
 ## Choosing the Image
 
 `versions.json` pins the official image of your database, one entry per version line.
 - A key is `<id>-<line>`.
 - Set `registry` to `ghcr.io/<owner>`.
-- Keep the packages the tool contract needs: `bash`, `ps`, `ss`, `ip`, `jq`, `openssl` and `curl`.
+- Keep the packages the tool contract needs: `bash`, `ps`, `ss`, `ip`, `jq`, `openssl` and `curl`. Add the backup and migration tools your driver's scripts call.
+- Remap the database user to UID/GID 64999, as the Dockerfile does for `valkey`.
+- Keep the `AS sdk` stage pinned to `ghcr.io/databasifylabs/engine-sdk:<sdk>@sha256:<digest>`, the `ENV DATABASIFY_ENGINE/RELEASE/LINE` block and `ENTRYPOINT ["/usr/local/bin/databasify", "serve"]`. The binary runs as the container runtime only when `DATABASIFY_ENGINE` is set.
+- Add a `go` pin only if the image builds a tool from Go source (`GO_IMAGE`).
 
 The refresh pins every package and moves each pin to the newest patch of its line:
 
@@ -55,28 +37,24 @@ The refresh pins every package and moves each pin to the newest patch of its lin
 $IMAGES refresh <id>-<line>
 ```
 
-`$IMAGES` is `tools/images.sh` in a clone of [engine-sdk](https://github.com/databasifylabs/engine-sdk) at the version `go.mod` requires, run from this repository's root.
+`$IMAGES` is `tools/images.sh` in a clone of [engine-sdk](https://github.com/databasifylabs/engine-sdk) at the tag the `sdk` pin names (`v1.0.0`), run from this repository's root.
 
 ## Testing
 
 ```bash
-go vet ./... && go test -race -count=1 ./...
 $IMAGES check
 $IMAGES build example-9 --load --tag smoke:example-9
 $IMAGES smoke smoke:example-9 example
 ```
 
-The smoke test starts the image, runs `images/example/smoke/check.sh` inside it, and then runs the conformance suite.
-- The suite always tests `engine capabilities`, `engine host-profile`, `engine info` and `node status`.
-- It tests every other command once `engine capabilities` lists it.
-- It checks that every unlisted command answers `unsupported`.
+The smoke test checks `engine info` and the tool contract, starts the image with `images/example/smoke/processes.json`, runs `images/example/smoke/check.sh` inside it, and then runs the SDK's runtime conformance suite.
 
 ## Publishing
 
-Push to GitHub. On every push, `.github/workflows/images.yml` does three things:
-1. It runs the tests.
-2. It builds, smoke-tests and scans each line for `linux/amd64` and `linux/arm64`.
-3. It publishes `ghcr.io/<owner>/databasify-<id>:<release>-<sha7>`. The default branch also moves `<release>`, `<line>` and `latest`.
+Push to GitHub. On every push, `.github/workflows/images.yml`:
+1. checks the pins;
+2. builds, smoke-tests and scans each line for `linux/amd64` and `linux/arm64`;
+3. publishes `ghcr.io/<owner>/databasify-<id>:<release>-<sha7>`. The default branch also moves `<release>`, `<line>` and `latest`.
 
 ```bash
 git push origin main
@@ -84,12 +62,8 @@ git push origin main
 
 A new package starts private. Make it public, because Databasify pulls images without credentials.
 
-## Registering the Engine
+## Writing the Driver
 
-In a plugin made from [plugin-example-database](https://github.com/databasifylabs/plugin-example-database), declare the engine id in `composer.json` and point `image()` at your images:
+The engine reaches Databasify through its driver: a class extending `App\Engines\Drivers\AbstractEngineDriver` that declares the engine's facts (ports, reserved names, password encryptions, host profile) per version line and hands out the groups it offers. Each group method runs one Blade script inside the container. Follow the app's [`adding-database-engine`](https://github.com/databasifylabs/databasify/tree/0.x/.claude/skills/adding-database-engine) skill, which points to the closest existing engine to copy.
 
-```json
-"extra": { "databasify": { "engines": ["<id>"] } }
-```
-
-Databasify runs only images built on an SDK inside its supported range. Rebuild on a new SDK when the range moves, or databases on your engine become read-only.
+Databasify runs only images built on an SDK inside its supported range (`^0.2.2 || ^1.0`).
