@@ -3,6 +3,3 @@ CVE-2026-76844
 CVE-2026-85091
 # apt and libapt-pkg in the base image, until the official image ships the fixed apt.
 CVE-2026-109518
-# golang.org/x/text v0.14.0 in redis-shake 4.7.0, until a redis-shake release takes 0.41.0.
-CVE-2026-56851
-CVE-2026-56852

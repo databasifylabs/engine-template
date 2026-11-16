@@ -13,9 +13,8 @@ RUN set -eux; \
     apt-get install -y --no-install-recommends $PACKAGES; \
     rm -rf /var/lib/apt/lists/*
 RUN set -eux; \
-    groupmod -g 64999 valkey; \
-    usermod -u 64999 -g 64999 valkey; \
-    find / -xdev \( -uid 999 -o -gid 999 \) -exec chown -h 64999:64999 {} +
+    groupadd -g 64999 example; \
+    useradd -u 64999 -g 64999 -d /srv/example -M -s /usr/sbin/nologin example
 COPY --from=sdk /databasify /usr/local/bin/databasify
 LABEL org.opencontainers.image.source="https://github.com/databasifylabs/engine-template" \
       io.databasify.engine="example" \
